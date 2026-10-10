@@ -1,0 +1,351 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Year {
+  ONE_YEAR
+  TWO_YEAR
+}
+enum ExamYear {
+  ONE_YEAR
+  TWO_YEAR
+  BOTH
+}
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+enum ExamStatus {
+  DRAFT
+  PUBLISHED
+  CLOSED
+}
+enum Language {
+  PYTHON
+  JAVA
+  CPP
+}
+enum ScoringMode {
+  PROPORTIONAL
+  FULL_MARKS
+}
+enum SubmissionPolicy {
+  LATEST
+  BEST
+}
+enum AttemptStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  SUBMITTED
+  AUTO_SUBMITTED
+  EVALUATED
+}
+enum SubmissionStatus {
+  NOT_ATTEMPTED
+  DRAFT
+  ACCEPTED
+  WRONG_ANSWER
+  COMPILATION_ERROR
+  RUNTIME_ERROR
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+}
+enum ExecutionStatus {
+  ACCEPTED
+  WRONG_ANSWER
+  COMPILATION_ERROR
+  RUNTIME_ERROR
+  TIME_LIMIT_EXCEEDED
+  MEMORY_LIMIT_EXCEEDED
+}
+enum ViolationType {
+  TAB_SWITCH
+  WINDOW_BLUR
+  FULLSCREEN_EXIT
+  COPY_ATTEMPT
+  PASTE_ATTEMPT
+  CUT_ATTEMPT
+  RIGHT_CLICK
+  PAGE_LEAVE
+}
+
+model Admin {
+  id           String   @id @default(cuid())
+  username     String   @unique
+  email        String   @unique
+  name         String   @default("Administrator")
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@map("admins")
+}
+
+model Student {
+  id           String      @id @default(cuid())
+  studentId    String      @unique
+  name         String
+  passwordHash String
+  year         Year
+  email        String?
+  phone        String?
+  department   String?
+  batch        String?
+  rollNumber   String?
+  status       UserStatus  @default(ACTIVE)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  attempts     ExamAttempt[]
+  results      Result[]
+  violations   ExamViolation[]
+
+  @@index([year])
+  @@map("students")
+}
+
+model Exam {
+  id                 String           @id @default(cuid())
+  title              String
+  description        String           @default("")
+  year               ExamYear
+  durationMinutes    Int
+  totalMarks         Float            @default(0)
+  startDateTime      DateTime
+  endDateTime        DateTime
+  instructions       String           @default("")
+  status             ExamStatus       @default(DRAFT)
+  fullscreenRequired Boolean          @default(false)
+  disableCopyPaste   Boolean          @default(true)
+  disableRightClick  Boolean          @default(true)
+  tabSwitchDetection Boolean          @default(true)
+  maxViolations      Int              @default(0)
+  autoSubmit         Boolean          @default(true)
+  scoringMode        ScoringMode      @default(PROPORTIONAL)
+  submissionPolicy   SubmissionPolicy @default(BEST)
+  languages          Language[]       @default([])
+  showVerdict        Boolean          @default(true)
+  strictWhitespace   Boolean          @default(false)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  questions          ExamQuestion[]
+  attempts           ExamAttempt[]
+  results            Result[]
+
+  @@index([status, year])
+  @@map("exams")
+}
+
+model Question {
+  id               String         @id @default(cuid())
+  title            String
+  problemStatement String
+  inputFormat      String         @default("")
+  outputFormat     String         @default("")
+  constraints      String         @default("")
+  explanation      String         @default("")
+  sampleInput      String         @default("")
+  sampleOutput     String         @default("")
+  marks            Float          @default(10)
+  timeLimitMs      Int            @default(2000)
+  memoryLimitMb    Int            @default(256)
+  orderNumber      Int            @default(0)
+  allowedLanguages Language[]
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+  testCases        TestCase[]
+  examQuestions    ExamQuestion[]
+
+  @@map("questions")
+}
+
+model TestCase {
+  id             String   @id @default(cuid())
+  questionId     String
+  input          String
+  expectedOutput String
+  isSample       Boolean  @default(false)
+  weight         Int      @default(1)
+  createdAt      DateTime @default(now())
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@index([questionId])
+  @@map("test_cases")
+}
+
+model ExamQuestion {
+  id             String   @id @default(cuid())
+  examId         String
+  questionId     String
+  questionNumber Int
+  marks          Float
+  exam           Exam     @relation(fields: [examId], references: [id], onDelete: Cascade)
+  question       Question @relation(fields: [questionId], references: [id], onDelete: Restrict)
+
+  @@unique([examId, questionId])
+  @@unique([examId, questionNumber])
+  @@map("exam_questions")
+}
+
+model ExamAttempt {
+  id               String        @id @default(cuid())
+  examId           String
+  studentId        String
+  attemptNumber    Int           @default(1)
+  startedAt        DateTime      @default(now())
+  submittedAt      DateTime?
+  expiresAt        DateTime
+  status           AttemptStatus @default(IN_PROGRESS)
+  autoSubmitted    Boolean       @default(false)
+  finalizeReason   String?
+  totalMarks       Float         @default(0)
+  obtainedMarks    Float         @default(0)
+  percentage       Float         @default(0)
+  timeTakenSeconds Int?
+  exam             Exam          @relation(fields: [examId], references: [id], onDelete: Cascade)
+  student          Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  submissions      QuestionSubmission[]
+  result           Result?
+  violations       ExamViolation[]
+
+  @@unique([examId, studentId, attemptNumber])
+  @@index([status, expiresAt])
+  @@map("exam_attempts")
+}
+
+model QuestionSubmission {
+  id                String           @id @default(cuid())
+  attemptId         String
+  questionId        String
+  language          Language
+  sourceCode        String
+  status            SubmissionStatus @default(DRAFT)
+  obtainedMarks     Float            @default(0)
+  passedTestCases   Int              @default(0)
+  totalTestCases    Int              @default(0)
+  evaluatedCode     String?
+  evaluatedLanguage Language?
+  submissionCount   Int              @default(0)
+  submittedAt       DateTime?
+  executionTimeMs   Int?
+  memoryUsedKb      Int?
+  updatedAt         DateTime         @updatedAt
+  attempt           ExamAttempt      @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  executions        CodeExecution[]
+
+  @@unique([attemptId, questionId])
+  @@map("question_submissions")
+}
+
+model CodeExecution {
+  id              String             @id @default(cuid())
+  submissionId    String
+  testCaseId      String?
+  attemptNo       Int                @default(1)
+  input           String
+  output          String
+  expectedOutput  String
+  status          ExecutionStatus
+  executionTimeMs Int                @default(0)
+  memoryUsedKb    Int?
+  compilerMessage String?
+  runtimeMessage  String?
+  createdAt       DateTime           @default(now())
+  submission      QuestionSubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@index([submissionId])
+  @@map("code_executions")
+}
+
+model Result {
+  id               String         @id @default(cuid())
+  attemptId        String         @unique
+  studentId        String
+  examId           String
+  totalQuestions   Int
+  totalMarks       Float
+  obtainedMarks    Float
+  percentage       Float
+  attemptedCount   Int
+  acceptedCount    Int
+  wrongAnswerCount Int
+  unansweredCount  Int
+  timeTakenSeconds Int            @default(0)
+  submittedAt      DateTime
+  attempt          ExamAttempt    @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student          Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  exam             Exam           @relation(fields: [examId], references: [id], onDelete: Cascade)
+  details          ResultDetail[]
+
+  @@index([examId])
+  @@index([studentId])
+  @@map("results")
+}
+
+model ResultDetail {
+  id              String           @id @default(cuid())
+  resultId        String
+  questionId      String
+  questionNumber  Int
+  questionTitle   String
+  language        Language?
+  status          SubmissionStatus
+  marks           Float
+  maxMarks        Float
+  passedTestCases Int              @default(0)
+  totalTestCases  Int              @default(0)
+  executionTimeMs Int?
+  sourceCode      String?
+  result          Result           @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@index([resultId])
+  @@map("result_details")
+}
+
+model ExamViolation {
+  id        String        @id @default(cuid())
+  attemptId String
+  studentId String
+  type      ViolationType
+  details   String?
+  createdAt DateTime      @default(now())
+  attempt   ExamAttempt   @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  student   Student       @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([attemptId])
+  @@map("exam_violations")
+}
+
+model Feedback {
+  id                  String   @id @default(cuid())
+  studentName         String
+  studentId           String
+  classYear           String
+  language            String
+  loginEase           Int
+  uiRating            Int
+  problemReadability  String
+  codeEditorRating    Int
+  runCodeWorks        String
+  inputOutputEase     String
+  timerVisible        String
+  timeSufficient      String
+  languageSupport     String
+  executionSpeed      Int
+  resultsDisplayed    String
+  overallSatisfaction Int
+  likedMost           String?
+  issuesSeen          String[]
+  improvements        String?
+  useAgain            String
+  submittedById       String?
+  createdAt           DateTime @default(now())
+
+  @@unique([submittedById])
+  @@index([createdAt])
+  @@map("feedback")
+}

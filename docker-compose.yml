@@ -1,0 +1,78 @@
+# Online Programming Examination System
+#   docker compose --profile images build     # one-time: build the 3 sandbox images
+#   docker compose up -d --build              # start everything
+#   docker compose exec backend npx prisma db seed
+# Open http://localhost:8080
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-exam_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-exam_db}
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-exam_user} -d ${POSTGRES_DB:-exam_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [backend-net]
+
+  backend:
+    build: ./server
+    restart: unless-stopped
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-exam_user}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-exam_db}?schema=public
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      CLIENT_URL: ${CLIENT_URL:-http://localhost:8080}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      RUNNER_URL: http://code-runner:4001
+      RUNNER_TOKEN: ${RUNNER_TOKEN:?set RUNNER_TOKEN in .env}
+    networks: [backend-net, runner-net, frontend-net]
+
+  frontend:
+    build: ./client
+    restart: unless-stopped
+    depends_on: [backend]
+    ports: ["8080:80"]
+    networks: [frontend-net]
+
+  # Starts one locked-down container per execution. It can reach the Docker daemon, so it is the
+  # most sensitive service: it is only on the internal runner-net (no published ports, no database access).
+  code-runner:
+    build: ./code-runner
+    restart: unless-stopped
+    environment:
+      PORT: 4001
+      RUNNER_TOKEN: ${RUNNER_TOKEN}
+      MAX_CONCURRENT: ${RUNNER_MAX_CONCURRENT:-4}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [runner-net]
+
+  # Build-only helpers for the sandbox images:  docker compose --profile images build
+  sandbox-python:
+    profiles: [images]
+    build: ./code-runner/docker/python
+    image: exam-runner-python
+  sandbox-java:
+    profiles: [images]
+    build: ./code-runner/docker/java
+    image: exam-runner-java
+  sandbox-cpp:
+    profiles: [images]
+    build: ./code-runner/docker/cpp
+    image: exam-runner-cpp
+
+networks:
+  backend-net: { internal: true }
+  runner-net: { internal: true }
+  frontend-net: {}
+
+volumes:
+  pgdata:
